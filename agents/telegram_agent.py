@@ -22,6 +22,7 @@ from database import (
     MAX_MANAGER_PAUSE_MINUTES,
     get_manager_pause_until,
     get_simulation_cash,
+    get_today_simulated_orders,
     get_user_portfolio,
     initialize_database,
     pause_manager_for,
@@ -36,7 +37,16 @@ MAX_TELEGRAM_MESSAGE_LENGTH = 4000
 
 
 class TelegramIntent(BaseModel):
-    intent: Literal["assets", "chart", "pause", "resume", "status", "reply", "unsupported"]
+    intent: Literal[
+        "assets",
+        "chart",
+        "orders",
+        "pause",
+        "resume",
+        "status",
+        "reply",
+        "unsupported",
+    ]
     response: str = Field(description="A concise, friendly Traditional Chinese reply.")
     pause_minutes: int | None = Field(
         default=None,
@@ -99,6 +109,7 @@ def interpret_message(
             "判斷使用者的繁體中文訊息意圖，並只輸出符合 schema 的結果。"
             "可用意圖：assets（查詢目前資產/持倉/現金/損益）、"
             "chart（要求資產圖表）、pause（要求暫停經理人/排程）、"
+            "orders（詢問今天的模擬買賣、賣出或加減碼紀錄）、"
             "resume（要求恢復）、status（詢問暫停狀態）、"
             "reply（問候或不涉及即時投資組合資料的一般對話）、"
             "unsupported（要求下單、修改持倉，或超出上述支援範圍）。"
@@ -183,6 +194,33 @@ def format_asset_report(portfolio: list[dict], summary: dict) -> str:
         lines.append(
             f"{holding['symbol']}：{holding['quantity']:,.0f} 股，"
             f"現價 {holding.get('current_price') or 'N/A'}，市值 {value_text}"
+        )
+    return "\n".join(lines)
+
+
+def format_today_orders_report(orders: list[dict]) -> str:
+    now = datetime.now(TAIPEI)
+    sold_shares = sum(
+        int(order["shares"]) for order in orders if order["action"] == "REDUCE"
+    )
+    bought_shares = sum(
+        int(order["shares"]) for order in orders if order["action"] == "ADD"
+    )
+    lines = [
+        f"今日模擬交易紀錄（台北日期 {now.date().isoformat()}）",
+        f"賣出：{sold_shares:,} 股",
+        f"買入：{bought_shares:,} 股",
+    ]
+    if not orders:
+        lines.append("今日沒有模擬買賣成交。")
+        return "\n".join(lines)
+
+    lines.append("")
+    for order in orders:
+        action_text = "賣出" if order["action"] == "REDUCE" else "買入"
+        lines.append(
+            f"{order['symbol']}：{action_text} {int(order['shares']):,} 股，"
+            f"成交價 TWD {float(order['price']):,.2f}"
         )
     return "\n".join(lines)
 
@@ -287,6 +325,7 @@ def handle_command(token: str, chat_id: int, text: str) -> None:
             "可用指令：\n"
             "/assets - 查詢資產狀況\n"
             "/chart - 產生資產分布圖\n"
+            "/orders - 查詢今日模擬買賣與賣出股數\n"
             "/pause <時間> - 暫停經理人，例如 /pause 30m、/pause 2h、/pause 1d"
             "（最多 7 天）\n"
             "/resume - 立即恢復經理人交易\n"
@@ -298,6 +337,15 @@ def handle_command(token: str, chat_id: int, text: str) -> None:
     elif command == "/chart":
         portfolio, summary = build_asset_report()
         _send_chart(token, chat_id, create_asset_chart(portfolio, summary))
+    elif command == "/orders":
+        if len(parts) != 1:
+            send_message(token, chat_id, "此指令不接受額外參數：/orders")
+            return
+        send_message(
+            token,
+            chat_id,
+            format_today_orders_report(get_today_simulated_orders()),
+        )
     elif command == "/pause":
         if len(parts) != 2:
             send_message(token, chat_id, "請提供暫停時間，例如 /pause 2h。")
@@ -354,6 +402,10 @@ def handle_message(
         _send_chart(token, chat_id, create_asset_chart(portfolio, summary))
         send_message(token, chat_id, response or "已產生並傳送目前的資產分布圖。")
         response = f"{response}\n已傳送資產分布圖。".strip()
+    elif intent.intent == "orders":
+        report = format_today_orders_report(get_today_simulated_orders())
+        response = f"{response}\n\n{report}".strip()
+        send_message(token, chat_id, response)
     elif intent.intent == "pause":
         if intent.pause_minutes is None:
             send_message(

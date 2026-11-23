@@ -266,6 +266,40 @@ class SimulationWorkflowTests(unittest.TestCase):
         self.assertIn("TWD 115,000.00", answer)
         send.assert_called_once()
 
+    def test_natural_language_today_orders_reports_sold_shares(self) -> None:
+        intent = telegram_agent.TelegramIntent(
+            intent="orders",
+            response="我查一下今天的模擬交易。",
+        )
+        with (
+            patch.object(telegram_agent, "interpret_message", return_value=intent),
+            patch.object(
+                telegram_agent,
+                "get_today_simulated_orders",
+                return_value=[
+                    {
+                        "symbol": "0050.TW",
+                        "action": "REDUCE",
+                        "lots": 1,
+                        "shares": 1000,
+                        "price": 105.0,
+                        "gross_realized_pnl": 5000.0,
+                    }
+                ],
+            ),
+            patch.object(telegram_agent, "send_message") as send,
+        ):
+            answer = telegram_agent.handle_message(
+                "token",
+                123,
+                "今天賣出幾股？",
+                [],
+                Mock(),
+            )
+        self.assertIn("賣出：1,000 股", answer)
+        self.assertIn("0050.TW", answer)
+        send.assert_called_once()
+
     def test_natural_language_pause_rejects_duration_over_seven_days(self) -> None:
         intent = telegram_agent.TelegramIntent(
             intent="pause",

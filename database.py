@@ -193,6 +193,33 @@ def get_today_order_count(now: datetime | None = None) -> int:
             return int(cursor.fetchone()[0])
 
 
+def get_today_simulated_orders(now: datetime | None = None) -> list[dict]:
+    trading_date = _taipei_moment(now).date()
+    with pymysql.connect(**mariadb_config()) as connection:
+        with connection.cursor(DictCursor) as cursor:
+            cursor.execute(
+                """
+                SELECT symbol, action, lots, shares, price,
+                       gross_realized_pnl, created_at
+                FROM simulated_orders
+                WHERE order_date = %s
+                ORDER BY created_at, id
+                """,
+                (trading_date,),
+            )
+            rows = cursor.fetchall()
+            return [
+                {
+                    **row,
+                    "lots": int(row["lots"]),
+                    "shares": int(row["shares"]),
+                    "price": float(row["price"]),
+                    "gross_realized_pnl": float(row["gross_realized_pnl"]),
+                }
+                for row in rows
+            ]
+
+
 def get_manager_pause_until() -> datetime | None:
     with pymysql.connect(**mariadb_config()) as connection:
         with connection.cursor() as cursor:
