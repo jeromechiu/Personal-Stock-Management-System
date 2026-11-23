@@ -109,6 +109,52 @@ Telegram agent 支援自然語言對話，例如「目前資產狀況如何？�
 
 `GEMINI_MODEL` 是所有 CrewAI agents 共用的模型設定，分析與 Telegram 對話都由 [`.env`](./.env) 讀取；未設定時程式會明確報錯，不會使用程式內的預設模型。
 
+### Telegram Agent 操作說明
+
+Telegram agent 是一個常駐的私訊指令服務，由 `--telegram` 與排程主程式在同一個執行緒程序中啟動。設定完成後，使用 `/help` 可在 Telegram 中查看指令；`TELEGRAM_CHAT_ID` 是排程分析報告的收件帳號，`TELEGRAM_ALLOWED_USER_IDS` 則是可送出指令與對話的使用者白名單。
+
+啟動前請確認：
+
+- 已在 Telegram 建立 bot 並取得 `TELEGRAM_BOT_TOKEN`。
+- 已取得允許操作 bot 的 Telegram numeric user ID，並以逗號分隔寫入 `TELEGRAM_ALLOWED_USER_IDS`。
+- 已設定 `GEMINI_API_KEY` 與 `GEMINI_MODEL`，自然語言意圖判斷需要 Gemini。
+- 若要接收排程報告，另須設定 `TELEGRAM_CHAT_ID`。
+- bot 只接受私訊及白名單中的使用者，群組或未授權使用者的訊息會忽略。
+
+建議啟動方式：
+
+```bash
+./env/bin/python main.py --telegram
+```
+
+這會同時啟動排程、Telegram 指令輪詢、自然語言對話與分析報告傳送。
+只執行一次分析並傳送報告時，可使用：
+
+```bash
+./env/bin/python main.py --once --telegram
+```
+
+此模式不啟動常駐 Telegram 指令服務。
+
+支援的指令：
+
+| 指令 | 語法與效果 |
+| --- | --- |
+| `/help` | 顯示可用指令。 |
+| `/assets` | 即時讀取 MariaDB 持倉、模擬現金並計算資產、市值、成本與未實現損益。 |
+| `/chart` | 產生並傳送持倉市值與可用現金的資產分布圖。 |
+| `/pause` | 暫停排程分析與模擬交易，例如 `/pause 30m`、`/pause 2h`、`/pause 1d`；時間可為 1 分鐘至 7 天。 |
+| `/resume` | 清除暫停狀態，下一輪排程即可恢復分析與模擬交易。 |
+| `/status` | 顯示是否暫停，以及台北時間的剩餘時間與預計恢復時間。 |
+
+自然語言的處理規則：
+
+- Gemini 只負責判斷意圖及產生簡短繁體中文回覆；實際資料由程式重算或從資料庫讀取。
+- 支援資產查詢、圖表、暫停、恢復、暫停狀態與一般問候。
+- 暫停時間必須是正整數分鐘，最多 7 天；未提供時間時會詢問使用者，不會自行猜測。
+- 不支援下單、修改持倉、讀取真實券商帳戶或任何真實交易操作。
+- 當報價或幣別資料不完整時，資產報告會明確顯示「無法計算」或「報價不完整」，不會捏造總額。
+
 ## 資料表
 
 | 資料表 | 用途 |
